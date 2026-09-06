@@ -11,7 +11,7 @@ python -m venv .venv
 .\.venv\Scripts\python.exe run_agent.py INT-101
 ```
 
-İlk çalıştırma örnek görevi okur ve `workspace/INT-101/run-status.json` dosyasını oluşturur. Henüz AI çağrısı, OSB analizi veya MuleSoft kod üretimi yapmaz.
+İlk çalıştırma örnek görevi okur ve `workspace/INT-101/run-status.json` dosyasını oluşturur.
 
 ## Klasörler
 
@@ -20,16 +20,13 @@ python -m venv .venv
 - `mule-projects/`: MuleSoft projeleri; Mule eklentisiyle burada oluşturulacak.
 - `workspace/`: Çalıştırma çıktıları; Git'e eklenmez.
 
-## İlk hedef
+## Analysis Agent
 
-1. Örnek OSB dosyalarını ekle.
-2. Model sağlayıcısını seç ve ilk API çağrısını yap.
-3. Dosyalara dayanan, eksik bilgileri açıkça belirten analiz çıktısı üret.
-4. Çıktının yapısını doğrula ve kaydet.
+Agent Jira görevini okur; WSDL, XSD, proxy, business service, pipeline ve XQuery gibi metin eklerini indirir. Verilen servis için kanıtlı OSB analizi ve MuleSoft teknik tasarımı üretir. Kaynakta bulunmayan endpoint, timeout veya authentication değerlerini uydurmaz.
 
 Sonraki aşamalar: Jira bağlantısı, MuleSoft kod üretimi, test ve sınırlı düzeltme döngüsü, draft PR.
 
-API anahtarlarını kaynak koda yazma. Model bağlantısı eklendiğinde ortam değişkenleri kullanılacak.
+API anahtarlarını kaynak koda yazma. Jira ve OpenAI anahtarları yalnızca `.env` dosyasında tutulur.
 
 ## GitHub ve Jira bağlantıları
 
@@ -46,10 +43,23 @@ Kapsamlı (scoped) token kullanıyorsan `JIRA_CLOUD_ID` alanını da doldur. Cli
 Resmi kimlik doğrulama açıklaması: https://developer.atlassian.com/cloud/jira/platform/basic-auth-for-rest-apis/
 
 ```powershell
+.\.venv\Scripts\python.exe -m pip install -e .
 .\.venv\Scripts\python.exe check_connections.py all
-.\.venv\Scripts\python.exe run_agent.py MIG-1 --source jira
+.\.venv\Scripts\python.exe run_agent.py KAN-1 --source jira --service CustomerLookup --analyze
 ```
 
-`MIG-1` yerine Jira'da mevcut olan iş anahtarını kullan. Jira bağlantısı şu an kimlik doğrulama kontrolü, görev açıklaması ve ek dosyaların metadata bilgisini okur. Ek dosyaları henüz indirmez; açıklamayı Jira'nın ADF JSON biçiminde saklar. Jira'ya yazma ve AI analizi henüz yoktur.
+`KAN-1` yerine Jira'daki gerçek iş anahtarını, `CustomerLookup` yerine analiz edilecek OSB servisinin adını kullan.
+
+Üretilen dosyalar:
+
+- `workspace/KAN-1/jira/task.json`
+- `workspace/KAN-1/jira/attachments/`
+- `workspace/KAN-1/analysis/requirement-analysis.json`
+- `workspace/KAN-1/analysis/osb-analysis.json`
+- `workspace/KAN-1/analysis/analysis.md`
+- `workspace/KAN-1/design/mule-design.json`
+- `workspace/KAN-1/design/technical-design.md`
+
+İlk sürüm yalnızca analiz ve tasarım üretir. MuleSoft XML/RAML/DataWeave kod üretimi sonraki aşamadır.
 
 GitHub kontrolü yalnızca okuma erişimini doğrular. Commit/push işlemleri Git üzerinden yapılır; otomatik PR oluşturma henüz eklenmedi.

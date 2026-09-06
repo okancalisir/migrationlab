@@ -5,7 +5,7 @@ from pathlib import Path
 from unittest.mock import patch
 from urllib.error import HTTPError
 
-from orchestrator.jira import JiraClient, load_settings
+from orchestrator.jira import JiraClient, SafeAtlassianRedirect, load_settings
 
 
 class JiraTests(unittest.TestCase):
@@ -47,6 +47,33 @@ class JiraTests(unittest.TestCase):
             (root / ".env").write_text("JIRA_EMAIL=file@example.com\n", encoding="utf-8")
             with patch.dict("os.environ", {"JIRA_EMAIL": "env@example.com"}, clear=True):
                 self.assertEqual(load_settings(root)["JIRA_EMAIL"], "env@example.com")
+
+    def test_attachment_download_sanitizes_filename(self):
+        client = JiraClient(self.settings())
+        with tempfile.TemporaryDirectory() as folder, patch.object(
+            client, "_download_attachment", return_value=b"<definitions/>"
+        ):
+            manifest = client.download_attachments([{
+                "id": "42", "filename": "../Customer Service.wsdl",
+                "size": 14, "mimeType": "application/xml",
+            }], Path(folder))
+            self.assertEqual(manifest[0]["storedName"], "42-Customer_Service.wsdl")
+            self.assertTrue((Path(folder) / "42-Customer_Service.wsdl").exists())
+
+    def test_redirect_strips_authorization(self):
+        redirect = SafeAtlassianRedirect()
+        request = redirect.redirect_request(
+            type("Request", (), {})(), None, 302, "", {},
+            "https://api.media.atlassian.com/file/42",
+        )
+        self.assertIsNone(request.get_header("Authorization"))
+
+    def test_redirect_rejects_other_hosts(self):
+        with self.assertRaises(HTTPError):
+            SafeAtlassianRedirect().redirect_request(
+                type("Request", (), {})(), None, 302, "", {},
+                "https://evil.example/file/42",
+            )
 
 
 if __name__ == "__main__":

@@ -9,6 +9,14 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
+SUPPORTED_SOURCE_EXTENSIONS = {
+    ".biz", ".jca", ".md", ".pipeline", ".properties", ".proxy",
+    ".service", ".txt", ".wsdl", ".xml", ".xq", ".xquery", ".xqy",
+    ".xsd", ".yaml", ".yml",
+}
+MAX_ATTACHMENT_BYTES = 1_000_000
+MAX_TOTAL_ATTACHMENT_BYTES = 3_000_000
+
 
 class NoRedirect(HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
@@ -28,7 +36,10 @@ def load_settings(root: Path) -> dict[str, str]:
             if not separator:
                 raise ValueError("Invalid .env line; expected KEY=value.")
             settings[key.strip()] = value.strip().strip("\"'")
-    for key in ("JIRA_BASE_URL", "JIRA_EMAIL", "JIRA_API_TOKEN", "JIRA_CLOUD_ID"):
+    for key in (
+        "JIRA_BASE_URL", "JIRA_EMAIL", "JIRA_API_TOKEN", "JIRA_CLOUD_ID",
+        "OPENAI_API_KEY", "OPENAI_MODEL",
+    ):
         if key in os.environ:
             settings[key] = os.environ[key].strip()
     return settings
@@ -87,3 +98,69 @@ class JiraClient:
         if not re.fullmatch(r"[A-Z][A-Z0-9]*-[0-9]+", issue):
             raise ValueError("Expected an issue ID such as MIG-1.")
         return self.get(f"/rest/api/3/issue/{issue}?fields=summary,description,attachment,status")
+
+    def download_attachments(self, attachments: list[dict], destination: Path) -> list[dict]:
+        """Download supported text source files and return a safe manifest."""
+        destination.mkdir(parents=True, exist_ok=True)
+        manifest = []
+        total = 0
+        for attachment in attachments:
+            attachment_id = str(attachment.get("id", ""))
+            original_name = str(attachment.get("filename", ""))
+            if not re.fullmatch(r"[0-9]+", attachment_id):
+                continue
+            suffix = Path(original_name).suffix.lower()
+            if suffix not in SUPPORTED_SOURCE_EXTENSIONS:
+                continue
+            declared_size = int(attachment.get("size") or 0)
+            if declared_size > MAX_ATTACHMENT_BYTES:
+                raise ValueError(f"Attachment is too large: {original_name}")
+            safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", Path(original_name).name)
+            safe_name = safe_name.strip("._") or f"attachment{suffix}"
+            stored_name = f"{attachment_id}-{safe_name}"
+            data = self._download_attachment(attachment_id)
+            total += len(data)
+            if total > MAX_TOTAL_ATTACHMENT_BYTES:
+                raise ValueError("Supported Jira attachments exceed the 3 MB total limit.")
+            (destination / stored_name).write_bytes(data)
+            manifest.append({
+                "id": attachment_id,
+                "originalName": original_name,
+                "storedName": stored_name,
+                "mimeType": str(attachment.get("mimeType", "")),
+                "size": len(data),
+            })
+        return manifest
+
+    def _download_attachment(self, attachment_id: str) -> bytes:
+        url = self.base + f"/rest/api/3/attachment/content/{attachment_id}"
+        request = Request(url, headers={
+            "Authorization": self._authorization,
+            "Accept": "application/octet-stream",
+        })
+        try:
+            with build_opener(SafeAtlassianRedirect()).open(request, timeout=45) as response:
+                data = response.read(MAX_ATTACHMENT_BYTES + 1)
+        except HTTPError as exc:
+            raise ValueError(f"Could not download Jira attachment (HTTP {exc.code}).") from None
+        except (URLError, TimeoutError):
+            raise ValueError("Could not download Jira attachment.") from None
+        if len(data) > MAX_ATTACHMENT_BYTES:
+            raise ValueError("Downloaded Jira attachment exceeds the 1 MB limit.")
+        if b"\x00" in data[:4096]:
+            raise ValueError("A supported attachment appears to be binary.")
+        return data
+
+
+class SafeAtlassianRedirect(HTTPRedirectHandler):
+    """Allow Atlassian media redirects without forwarding Jira credentials."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        parsed = urlsplit(newurl)
+        hostname = (parsed.hostname or "").lower()
+        allowed = parsed.scheme == "https" and (
+            hostname.endswith(".atlassian.net") or hostname.endswith(".atlassian.com")
+        )
+        if not allowed:
+            raise HTTPError(newurl, code, "Unsafe attachment redirect", headers, fp)
+        return Request(newurl, headers={"Accept": "application/octet-stream"})
