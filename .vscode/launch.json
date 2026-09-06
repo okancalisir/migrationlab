@@ -1,0 +1,14 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Run sample INT-101",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/run_agent.py",
+      "args": ["INT-101"],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}"
+    }
+  ]
+}

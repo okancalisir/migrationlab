@@ -1,0 +1,16 @@
+{
+  "issue": "INT-101",
+  "title": "Analyze CustomerLookup for OSB to MuleSoft migration",
+  "source": "Oracle OSB",
+  "target": "MuleSoft",
+  "objective": "Analyze the source service before generating code.",
+  "requirements": [
+    "Preserve the existing external service contract.",
+    "Cite source files for analysis findings.",
+    "Report missing information instead of inventing values."
+  ],
+  "acceptanceCriteria": [
+    "Identify operations, dependencies and transformations from supplied files.",
+    "Report undocumented timeout and authentication settings as missing."
+  ]
+}

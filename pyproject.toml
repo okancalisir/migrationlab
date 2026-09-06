@@ -1,0 +1,6 @@
+[project]
+name = "migration-agent-lab"
+version = "0.1.0"
+description = "Learning AI orchestration through OSB to MuleSoft migration"
+requires-python = ">=3.11"
+dependencies = []
